@@ -1,0 +1,189 @@
+---
+title: "Final_Qual_Equipment"
+author: "Cameron Gallien"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+library(MASS)
+library(ISLR2)
+library(car)
+library(e1071)
+library(class)
+library(boot)
+library(leaps)
+library(glmnet)
+library(pls)
+library(splines)
+library(tree)
+library(randomForest)
+library(gbm)
+library(BART)
+library(dplyr)
+```
+
+```{r}
+survey <- read.csv("Merr.Customer.Survey (2).csv")
+removecols <- c("Telecommute", "CustomerID", "Region", "JobCategory", "NumberCats", "NumberDogs", "NumberBirds", "CarOwnership", "CarBrand", "TownSize", "CreditDebt", "OtherDebt", "CreditCard", "CardItemsMonthly", "VoiceOverTenure", "EquipmentOverTenure", "DataOverTenure", "Internet")
+survey <- survey %>% select(-all_of(removecols))
+survey <- survey %>% select(-"EquipmentLastMonth")
+```
+
+```{r}
+cor <- cor(survey[, "EquipmentRental"], survey[, sapply(survey, is.numeric)])
+```
+
+```{r}
+factorcols <- c("Gender", "UnionMember", "Retired", "LoanDefault", "MaritalStatus", "HomeOwner", "PoliticalPartyMem", "Votes", "ActiveLifestyle", "EquipmentRental", "CallingCard", "WirelessData", "Multiline", "VM", "Pager", "CallerID", "CallWait", "CallForward", "ThreeWayCalling", "EBilling", "OwnsPC", "OwnsMobileDevice", "OwnsGameSystem", "OwnsFax", "NewsSubscriber")
+survey[factorcols] <- lapply(survey[factorcols], factor)
+```
+
+# Logistic Regression
+
+```{r}
+set.seed(1)
+total_obs <- nrow(survey)
+train_size <- 0.75 * total_obs
+
+train_indices <- sample(1:total_obs, train_size, replace = FALSE)
+train <- rep(FALSE, total_obs)
+train[train_indices] <- TRUE
+
+survey.test <- survey[!train, ]
+equip.test <- survey$EquipmentRental[!train]
+```
+
+```{r}
+glm.fits <- glm(EquipmentRental ~ ., data = survey, family = binomial, subset = train)
+glm.probs <- predict(glm.fits, survey.test, type = "response")
+glm.pred <- rep(0, 1250)
+glm.pred[glm.probs > .5] <- 1
+table(glm.pred, equip.test)
+```
+```{r}
+mean(glm.pred == equip.test)
+```
+# LDA
+
+```{r}
+lda.fit <- lda(EquipmentRental ~ ., data = survey, subset = train)
+lda.pred <- predict(lda.fit, survey.test)
+lda.class <- lda.pred$class
+table(lda.class, equip.test)
+mean(lda.class == equip.test)
+```
+# QDA
+
+```{r}
+qda.fit <- qda(EquipmentRental ~ ., data = survey, subset = train)
+qda.class <- predict(qda.fit, survey.test)$class
+table(qda.class, equip.test)
+mean(qda.class == equip.test)
+```
+
+# KNN
+
+```{r}
+train.x <- survey[train, -which(names(survey) == "EquipmentRental")]
+test.x <- survey[!train, -which(names(survey) == "EquipmentRental")]
+train.equip <- survey$EquipmentRental[train]
+```
+
+```{r}
+set.seed(1)
+knn.pred <- knn(train.x, test.x, train.equip, k =15)
+table(knn.pred, equip.test)
+mean(knn.pred == equip.test)
+```
+
+```{r}
+qual_cols <- sapply(survey, function(x) !is.numeric(x))
+stand.x <- scale(survey[, !qual_cols])
+```
+
+```{r}
+set.seed(1)
+total_obs <- nrow(survey)
+train_size <- 0.75 * total_obs
+
+train_indices <- sample(1:total_obs, train_size, replace = FALSE)
+train <- rep(FALSE, total_obs)
+train[train_indices] <- TRUE
+
+test <- !train
+```
+
+
+```{r}
+train.x <- stand.x[-test,]
+test.x <- stand.x[test,]
+train.y <- survey$EquipmentRental[-test]
+test.y <- survey$EquipmentRental[test]
+```
+
+```{r}
+set.seed(1)
+knn.pred <- knn(train.x, test.x, train.y, k=25)
+mean(test.y == knn.pred)
+```
+
+
+```{r}
+table(knn.pred, test.y)
+```
+
+# Classification Trees
+
+```{r}
+set.seed(1)
+tree.survey <- tree(EquipmentRental ~ ., survey, subset = train)
+tree.pred <- predict(tree.survey, survey.test, type = "class")
+table(tree.pred, equip.test)
+mean(tree.pred == equip.test)
+```
+
+```{r}
+set.seed(2)
+cv.survey.tree <- cv.tree(tree.survey, FUN = prune.misclass)
+cv.survey.tree
+```
+```{r}
+plot(tree.survey)
+text(tree.survey, pretty = 0)
+plot(cv.survey.tree$size, cv.survey.tree$dev, type = "b")
+```
+
+
+# Bagging
+
+```{r}
+set.seed(1)
+bag.equip <- randomForest(EquipmentRental ~ ., data = survey, subset = train, mtry = 40, importance = T)
+```
+
+```{r}
+yhat.bag <- predict(bag.equip, newdata = survey.test, type = "class")
+sum(diag(table(Actual = survey.test$EquipmentRental, Predicted = yhat.bag))) / sum(table(Actual = survey.test$EquipmentRental, Predicted = yhat.bag))
+```
+
+# Random Forests
+
+```{r}
+set.seed(1)
+rf.equip <- randomForest(EquipmentRental ~ ., data = survey, subset = train, mtry =2, importance=T)
+yhat.rf <- predict(rf.equip, newdata = survey.test, type = "class")
+sum(diag(table(Actual = survey.test$EquipmentRental, Predicted = yhat.rf))) / sum(table(Actual = survey.test$EquipmentRental, Predicted = yhat.rf))
+```
+
+```{r}
+plot(rf.equip)
+```
+
+
+
+
+
+

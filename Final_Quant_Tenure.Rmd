@@ -1,0 +1,380 @@
+---
+title: "Pred_Model_Quantitative"
+author: "Cameron Gallien"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+library(MASS)
+library(ISLR2)
+library(car)
+library(e1071)
+library(class)
+library(boot)
+library(leaps)
+library(glmnet)
+library(pls)
+library(splines)
+library(tree)
+library(randomForest)
+library(gbm)
+library(BART)
+library(dplyr)
+```
+
+```{r}
+survey <- read.csv("Merr.Customer.Survey (2).csv")
+```
+
+```{r}
+removecols <- c("Telecommute", "CustomerID", "Region", "JobCategory", "NumberCats", "NumberDogs", "NumberBirds", "CarOwnership", "CarBrand", "TownSize", "CreditDebt", "OtherDebt", "CreditCard", "CardItemsMonthly", "VoiceOverTenure", "EquipmentOverTenure", "DataOverTenure", "Internet")
+#, "OwnsPC", "OwnsMobileDevice", "OwnsGameSystem", "OwnsFax" , "WirelessData", "ThreeWayCalling", "ActiveLifestyle", "CallingCard"
+survey <- survey %>% select(-all_of(removecols))
+factorcols <- c("Gender", "UnionMember", "Retired", "LoanDefault", "MaritalStatus", "HomeOwner", "PoliticalPartyMem", "Votes", "ActiveLifestyle", "EquipmentRental", "CallingCard", "WirelessData", "Multiline", "VM", "Pager", "CallerID", "CallWait", "CallForward", "ThreeWayCalling", "EBilling", "OwnsPC", "OwnsMobileDevice", "OwnsGameSystem", "OwnsFax", "NewsSubscriber")
+survey[factorcols] <- lapply(survey[factorcols], factor)
+removecols2 <- c("Retired", "HouseholdIncome", "NumberPets", "HomeOwner", "CarsOwned", "CarValue", "CommuteTime", "PoliticalPartyMem", "Votes", "CardSpendMonthly", "VM", "CallerID", "CallWait", "ThreeWayCalling", "EBilling")
+survey <- survey %>% select(-all_of(removecols2))
+```
+
+#  Multiple Regression Models, including best subset selection and stepwise selection
+
+#  Best Subset
+
+```{r}
+regfit.full <- regsubsets(PhoneCoTenure ~ ., survey, nvmax = 26)
+reg.summary <- summary(regfit.full)
+```
+
+```{r}
+reg.summary
+```
+
+```{r}
+par(mfrow = c(2,2))
+plot(reg.summary$rss, xlab = "Number of Variables",
+     ylab = "RSS", type = "l")
+plot(reg.summary$adjr2, xlab = "Number of Variables",
+     ylab = "Adjusted RSq", type = "l")
+which.max(reg.summary$adjr2)
+points(which.max(reg.summary$adjr2), reg.summary$adjr2[which.max(reg.summary$adjr2)], col = " red ", cex = 2, pch = 20)
+plot(reg.summary$cp, xlab = "Number of Variables",
+      ylab = "Cp", type = "l")
+which.min(reg.summary$cp)
+points(which.min(reg.summary$cp), reg.summary$cp[which.min(reg.summary$cp)], col = " red ", cex = 2,
+        pch = 20)
+plot(reg.summary$bic, xlab = "Number of Variables",
+      ylab = "BIC", type = "l")
+points (which.min(reg.summary$bic), reg.summary$bic[which.min(reg.summary$bic)], col = " red ", cex = 2,
+        pch = 20)
+which.min(reg.summary$bic)
+```
+
+```{r}
+coef(regfit.full, 12)
+```
+
+```{r}
+set.seed(1)
+total_obs <- nrow(survey)
+train_size <- 0.75 * total_obs
+
+train_indices <- sample(1:total_obs, train_size, replace = FALSE)
+train <- rep(FALSE, total_obs)
+train[train_indices] <- TRUE
+
+test <- !train
+```
+
+```{r}
+bestvars <- c("Age", "EducationYears", "MaritalStatus", "CardTenure", "VoiceLastMonth", "CallingCard", "WirelessData", "DataLastMonth", "Multiline", "CallForward", "OwnsFax", "NewsSubscriber")
+BestSubMod <- lm(PhoneCoTenure ~ ., data = survey[train, c("PhoneCoTenure", bestvars)])
+BestSubPred <- predict(BestSubMod, newdata = survey[test,])
+test_mse <- mean((BestSubPred - survey$PhoneCoTenure[test])^2)
+test_mse
+```
+
+
+# Forward & Backwards Stepwise
+
+```{r}
+regfit.fwd <- regsubsets(PhoneCoTenure ~ ., data = survey, nvmax = 26, method = "forward")
+fwd.summary <- summary(regfit.fwd)
+```
+
+```{r}
+par(mfrow = c(2,2))
+plot(fwd.summary$rss, xlab = "Number of Variables",
+     ylab = "RSS", type = "l")
+plot(fwd.summary$adjr2, xlab = "Number of Variables",
+     ylab = "Adjusted RSq", type = "l")
+which.max(fwd.summary$adjr2)
+points(which.max(fwd.summary$adjr2), fwd.summary$adjr2[which.max(fwd.summary$adjr2)], col = " red ", cex = 2, pch = 20)
+plot(fwd.summary$cp, xlab = "Number of Variables",
+      ylab = "Cp", type = "l")
+which.min(fwd.summary$cp)
+points(which.min(fwd.summary$cp), fwd.summary$cp[which.min(fwd.summary$cp)], col = " red ", cex = 2,
+        pch = 20)
+plot(fwd.summary$bic, xlab = "Number of Variables",
+      ylab = "BIC", type = "l")
+points (which.min(fwd.summary$bic), fwd.summary$bic[which.min(fwd.summary$bic)], col = " red ", cex = 2,
+        pch = 20)
+which.min(fwd.summary$bic)
+```
+
+```{r}
+coef(regfit.fwd, 12)
+```
+
+
+```{r}
+regfit.bwd <- regsubsets(PhoneCoTenure ~ ., data = survey, nvmax = 26, method = "backward")
+bwd.summary <- summary(regfit.bwd)
+```
+
+```{r}
+par(mfrow = c(2,2))
+plot(bwd.summary$rss, xlab = "Number of Variables",
+     ylab = "RSS", type = "l")
+plot(bwd.summary$adjr2, xlab = "Number of Variables",
+     ylab = "Adjusted RSq", type = "l")
+which.max(bwd.summary$adjr2)
+points(which.max(bwd.summary$adjr2), bwd.summary$adjr2[which.max(bwd.summary$adjr2)], col = " red ", cex = 2, pch = 20)
+plot(bwd.summary$cp, xlab = "Number of Variables",
+      ylab = "Cp", type = "l")
+which.min(bwd.summary$cp)
+points(which.min(bwd.summary$cp), bwd.summary$cp[which.min(bwd.summary$cp)], col = " red ", cex = 2,
+        pch = 20)
+plot(bwd.summary$bic, xlab = "Number of Variables",
+      ylab = "BIC", type = "l")
+points (which.min(bwd.summary$bic), bwd.summary$bic[which.min(bwd.summary$bic)], col = " red ", cex = 2,
+        pch = 20)
+which.min(bwd.summary$bic)
+```
+
+```{r}
+coef(regfit.bwd, 12)
+```
+# Choosing models via validation-set 
+
+```{r}
+regfit.best <- regsubsets(PhoneCoTenure ~ ., data = survey[train,], nvmax = 26)
+
+test.mat <- model.matrix(PhoneCoTenure ~ ., data = survey[test,])
+
+val.errors <- rep(NA, 26)
+for (i in 1:26) {
+  coefi <- coef(regfit.best, id = i)
+  pred <- test.mat[, names(coefi)] %*% coefi
+  val.errors[i] <- mean((survey$PhoneCoTenure[test] - pred)^2)
+}
+```
+
+```{r}
+which.min(val.errors)
+```
+```{r}
+predict.regsubsets <- function(object, newdata, id, ...) {
+  form <- as.formula(object$call[[2]])
+  mat <- model.matrix(form, newdata)
+  coefi <- coef(object, id = id)
+  xvars <- names(coefi)
+  mat[, xvars] %*% coefi
+}
+```
+
+```{r}
+regfit.best <- regsubsets(PhoneCoTenure ~ ., data = survey, nvmax = 26)
+coef(regfit.best, 12)
+```
+
+```{r}
+selected_vars <- c("Age", "EducationYears", "MaritalStatus", "CardTenure", "VoiceLastMonth",
+                   "CallingCard", "WirelessData", "DataLastMonth", "Multiline",
+                   "CallForward", "OwnsFax", "NewsSubscriber", "PhoneCoTenure")
+
+new_df <- survey[, selected_vars]
+
+
+ValSetMod <- lm(PhoneCoTenure ~ ., data = new_df[train, ])
+ValSetPred <- predict(ValSetMod, newdata = new_df[test, ])
+mean((ValSetPred- survey$PhoneCoTenure[test])^2)
+```
+
+# cross validation
+
+```{r}
+k <- 10
+n <- nrow(survey)
+set.seed(1)
+folds <- sample(rep(1:k, length = n))
+cv.errors <- matrix(NA, k, 26, dimnames = list(NULL, paste(1:26)))
+```
+
+```{r}
+for (j in 1:k) {
+  best.fit <- regsubsets(PhoneCoTenure ~ ., data = survey[folds != j,], nvmax = 26)
+  for (i in 1:26) {
+    pred <- predict(best.fit, survey[folds == j,], id = i)
+    cv.errors[j, i] <- mean((survey$PhoneCoTenure[folds == j] - pred)^2)
+  }
+}
+```
+
+```{r}
+mean.cv.errors <- apply(cv.errors, 2, mean)
+which.min(mean.cv.errors)
+```
+
+```{r}
+reg.best <- regsubsets(PhoneCoTenure ~ ., data = survey, nvmax = 26)
+coef(reg.best, 26)
+```
+
+```{r}
+CrossMod <- lm(PhoneCoTenure ~ ., data = survey[train,])
+CrossPred <- predict(CrossMod, newdata = survey[test,])
+mean((CrossPred - survey$PhoneCoTenure[test])^2)
+```
+
+#  Ridge Regression
+
+```{r}
+x <- model.matrix(PhoneCoTenure ~., survey)[, -1]
+y <- survey$PhoneCoTenure
+```
+
+```{r}
+grid <- 10^seq(10, -2, length =100)
+```
+
+```{r}
+set.seed(1)
+train <- sample(1:nrow(x), nrow(x) *.75)
+test <- setdiff(1:nrow(x), train)
+y.test <- y[test]
+```
+
+```{r}
+set.seed(1)
+cv.out <- cv.glmnet(x[train,], y[train], alpha = 0)
+bestlam <- cv.out$lambda.min
+bestlam
+```
+
+```{r}
+ridge.mod <- glmnet(x[train,], y[train], alpha = 0, lambda = grid, thresh = 1e-12)
+ridge.pred <- predict(ridge.mod, s = bestlam, newx = x[test,])
+mean((ridge.pred - y.test)^2)
+```
+
+#  Lasso Regression
+
+```{r}
+lasso.mod <- glmnet(x[train, ], y[train], alpha = 1, lambda = grid)
+set.seed(1)
+cv.out <- cv.glmnet(x[train, ], y[train], alpha = 1)
+bestlam <- cv.out$lambda.min
+bestlam
+```
+
+```{r}
+lasso.pred <- predict(lasso.mod, s = bestlam, newx = x[test,])
+mean((lasso.pred - y.test)^2)
+```
+
+#  Partial Least Squares
+
+```{r}
+set.seed(1)
+pls.fit <- plsr(PhoneCoTenure ~ ., data = survey, subset = train, scale = T, validation = "CV")
+summary(pls.fit)
+```
+
+```{r}
+pls.pred <- predict(pls.fit, x[test,], ncomp = 9)
+mean((pls.pred - y.test)^2)
+```
+
+#  Regression Trees
+
+```{r}
+set.seed(1)
+train <- sample(1:nrow(survey), nrow(survey) * 0.75)
+test <- setdiff(1:nrow(survey), train)
+tree.survey <- tree(PhoneCoTenure ~ ., data = survey, subset = train)
+summary(tree.survey)
+```
+```{r}
+plot(tree.survey)
+text(tree.survey, pretty = 0)
+```
+
+
+```{r}
+cv.survey <- cv.tree(tree.survey)
+plot(cv.survey$size, cv.survey$dev, type = "b")
+```
+
+```{r}
+yhat <- predict(tree.survey, newdata = survey[-train,])
+survey.test <- survey[-train, "PhoneCoTenure"]
+mean((yhat - survey.test)^2)
+```
+
+#  Bagging
+
+```{r}
+set.seed(1)
+bag.survey <- randomForest(PhoneCoTenure ~ ., data = survey, subset = train, mtry=26, importance=T)
+yhat.bag <- predict(bag.survey, newdata = survey[-train, ])
+mean((yhat.bag - survey.test)^2)
+```
+
+#  Random Forests
+
+```{r}
+set.seed(1)
+rf.survey <- randomForest(PhoneCoTenure ~ ., data = survey, subset = train, mtry = 15, importance = T)
+yhat.rf <- predict(rf.survey, newdata = survey[-train,])
+mean((yhat.rf - survey.test)^2)
+```
+
+#  Boosting
+
+```{r}
+set.seed(1)
+boost.survey <- gbm(PhoneCoTenure ~ ., data = survey[train,], distribution = "gaussian", n.trees = 100, interaction.depth = 4)
+summary(boost.survey)
+```
+
+```{r}
+yhat.boost <- predict(boost.survey, newdata = survey[-train,], n.trees = 100)
+mean((yhat.boost - survey.test)^2)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

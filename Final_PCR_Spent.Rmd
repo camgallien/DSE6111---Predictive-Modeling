@@ -1,0 +1,68 @@
+---
+title: "Final_PCR_Spent"
+author: "Cameron Gallien"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+library(MASS)
+library(ISLR2)
+library(car)
+library(e1071)
+library(class)
+library(boot)
+library(leaps)
+library(glmnet)
+library(pls)
+library(splines)
+library(tree)
+library(randomForest)
+library(gbm)
+library(BART)
+library(dplyr)
+```
+
+```{r}
+survey <- read.csv("Merr.Customer.Survey (2).csv")
+removecols <- c("Telecommute", "CustomerID", "Region", "JobCategory", "NumberCats", "NumberDogs", "NumberBirds", "CarOwnership", "CarBrand", "TownSize", "CreditDebt", "OtherDebt", "CreditCard", "CardItemsMonthly", "VoiceOverTenure", "EquipmentOverTenure", "DataOverTenure", "Internet")
+survey <- survey %>% select(-all_of(removecols))
+survey <- survey %>%
+  mutate(TotalLastMonth = VoiceLastMonth + EquipmentLastMonth + DataLastMonth)
+removecols2 <- c("VoiceLastMonth", "EquipmentLastMonth", "DataLastMonth", "EquipmentRental")
+survey <- survey %>% select(-all_of(removecols2))
+factorcols <- c("Gender", "UnionMember", "Retired", "LoanDefault", "MaritalStatus", "HomeOwner", "PoliticalPartyMem", "Votes", "ActiveLifestyle", "CallingCard", "WirelessData", "Multiline", "VM", "Pager", "CallerID", "CallWait", "CallForward", "ThreeWayCalling", "EBilling", "OwnsPC", "OwnsMobileDevice", "OwnsGameSystem", "OwnsFax", "NewsSubscriber")
+survey[factorcols] <- lapply(survey[factorcols], factor)
+```
+
+```{r}
+x <- model.matrix(TotalLastMonth ~., survey)[, -1]
+y <- survey$TotalLastMonth
+set.seed(1)
+train <- sample(1:nrow(x), nrow(x) *.75)
+test <- setdiff(1:nrow(x), train)
+y.test <- y[test]
+```
+
+
+```{r}
+set.seed(1)
+pcr.fit <- pcr(TotalLastMonth ~ ., data = survey, subset = train, scale = T, validation = "CV")
+summary(pcr.fit)
+validationplot(pcr.fit, val.type = "MSEP")
+```
+
+```{r}
+pcr.pred <- predict(pcr.fit, x[test,], ncomp = 38)
+sqrt(mean((pcr.pred - y.test)^2))
+summary(survey$TotalLastMonth)
+```
+
+
+
+
+
+
+
+
+
